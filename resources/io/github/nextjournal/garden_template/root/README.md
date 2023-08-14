@@ -12,6 +12,10 @@ Install the `garden` utility as described [here](https://docs.apps.garden/#insta
 
 `garden deploy`
 
+## Help
+
+`garden help`
+
 ## License
 
 Copyright © {{now/year}} {{developer}}
