@@ -1,0 +1,7 @@
+{:deps {http-kit/http-kit {:mvn/version "2.8.0-SNAPSHOT"}
+        ring/ring-core {:mvn/version "2.0.0-alpha1"}
+        hiccup/hiccup {:mvn/version "2.0.0-RC3"}
+        io.github.nextjournal/garden-cron {:git/sha "23d5af087f2c76cc884273883b18d30cb4fa4997"}
+        io.github.nextjournal/garden-id {:git/sha "7c1c9bb36978bc098f477181bc0261d69fa44389"}
+        io.github.nextjournal/garden-email {:git/sha "cdb5d404cd43127b3a495ca3f667279eab8950b7"}}
+ :aliases {:nextjournal/garden {:exec-fn {{main/ns}}.{{top/ns}}/start!}}}

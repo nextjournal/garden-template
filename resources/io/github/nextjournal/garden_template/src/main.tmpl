@@ -1,0 +1,114 @@
+(ns {{top/ns}}.{{main/ns}}
+  (:require [clojure.java.io :as io]
+            [org.httpkit.server :as server]
+            [hiccup2.core :as h]
+            ;; garden-id
+            [ring.middleware.session :as session]
+            [ring.middleware.session.cookie :refer [cookie-store]]
+            [nextjournal.garden-id :as garden-id]
+            ;; garden-email
+            [ring.middleware.params :as ring.params]
+            [nextjournal.garden-email :as garden-email]
+            [nextjournal.garden-email.render :as render-email]
+            [nextjournal.garden-email.mock :as mock-email]
+            ;; garden-cron
+            [nextjournal.garden-cron :as garden-cron]))
+
+(defn html-response [body]
+  {:status 200
+   :headers {"content-type" "text/html"}
+   :body (str (h/html body))})
+
+;; increment a counter every 5 seconds
+(defonce counter (atom 0))
+(defn scheduled-task [_] (swap! counter inc))
+(garden-cron/defcron #'scheduled-task {:second (range 0 60 5)})
+
+(defn cron-fragment []
+  [:div
+   [:h2 "Scheduled tasks"]
+   [:p "Counter has been incremented " @counter " times, since the application started."]])
+
+;; list persistent storage
+(defn ls-storage []
+  (.list (io/file (System/getenv "GARDEN_STORAGE"))))
+
+(defn storage-fragment []
+  [:div
+   [:h2 "Storage"]
+   [:p "Persistent storage contains the following directories:"]
+   [:ul
+    (for [d (ls-storage)]
+      [:li [:pre d]])]])
+
+(defn auth-fragment [req]
+  [:div
+   [:h2 "Auth"]
+   (if (garden-id/logged-in? req)
+     [:div
+      [:p "You are logged in as:"]
+      [:pre (pr-str (garden-id/get-user req))]
+      [:a {:href garden-id/logout-uri} "logout"]]
+     [:div
+      [:p "You are not logged in."]
+      [:a {:href garden-id/login-uri} "login"]])])
+
+(defn send-email! [req]
+  (let [{:strs [to subject text html]} (:form-params req)]
+    (html-response
+     [:div
+      [:pre (pr-str (garden-email/send-email! (cond-> {:to {:email to}}
+                                                (not= "" subject) (assoc :subject subject)
+                                                (not= "" text) (assoc :text text)
+                                                (not= "" html) (assoc :html html))))]
+      [:a {:href "/"} "ok"]])))
+
+(defn email-fragment []
+  [:div
+   [:h2 "Email"]
+   [:h3 "Send email"]
+   [:form {:action "/send-email" :method "POST" :style "display:flex;flex-direction:column;"}
+    [:label {:for "to"} "to"]
+    [:input {:name "to" :type "email" :required true}]
+    [:label {:for "subject"} "subject"]
+    [:input {:name "subject" :type "text"}]
+    [:label {:for "text"} "plain text"]
+    [:textarea {:name "text"}]
+    [:label {:for "html"} "html email"]
+    [:textarea {:name "html"}]
+    [:input {:type "submit" :value "send"}]]
+   (when garden-email/dev-mode? [:a {:href mock-email/outbox-url} "mock outbox"])
+   [:p "You can send me email at " [:a {:href (str "mailto:" garden-email/my-email-address)} garden-email/my-email-address]]
+   [:div
+    [:h3 "Inbox"]
+    (render-email/render-mailbox (garden-email/inbox))]])
+
+(defn home-page [req]
+  [:div
+   [:h1 "Welcome to application.garden"]
+   (cron-fragment)
+   (storage-fragment)
+   (email-fragment)
+   (auth-fragment req)])
+
+(defn app [{:as req :keys [uri]}]
+  (case uri
+    "/" (html-response (home-page req))
+
+    "/send-email" (send-email! req)
+
+    {:status 404 :body "not found"}))
+
+(def wrapped-app (-> #'app
+                     ;; garden-email
+                     (ring.params/wrap-params)
+                     (garden-email/wrap-with-email #_{:on-receive (fn [email] (println "Got mail"))})
+                     ;; garden-id
+                     (garden-id/wrap-auth #_{:github [["nextjournal"]]})
+                     (session/wrap-session {:store (cookie-store)})))
+
+(defn start! [opts]
+  (server/run-server #'wrapped-app (merge {:legacy-return-value? false
+                                           :host "0.0.0.0"
+                                           :port 7777}
+                                          opts)))
