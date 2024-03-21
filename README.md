@@ -2,7 +2,7 @@
 
 A template for [application.garden](https://application.garden) projects.
 
-Check out the [docs](shttps://docs.apps.garden/#project-templates) for more information.
+Check out the [docs](https://docs.apps.garden/#project-templates) for more information.
 
 ## Usage
 
