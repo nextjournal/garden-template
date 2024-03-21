@@ -2,9 +2,13 @@
 
 A template for [application.garden](https://application.garden) projects.
 
+Check out the [docs](shttps://docs.apps.garden/#project-templates) for more information.
+
 ## Usage
 
 This gets automatically used by `garden init`.
+
+You can use a specific commit from this repo using `garden init --git/sha <commit>`.
 
 If you want you can also use it with [neil](https):
 
