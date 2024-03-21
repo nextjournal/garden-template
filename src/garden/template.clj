@@ -1,9 +1,11 @@
 (ns garden.template
   (:require
    [babashka.http-client :as http]
+   [babashka.fs :as fs]
    [cheshire.core :as cheshire]
    [clojure.string :as str]
-   [clojure.pprint :refer [pprint]]))
+   [clojure.pprint :refer [pprint]]
+   [zprint.core :as zprint]))
 
 ;; adapted from https://github.com/babashka/neil
 
@@ -225,3 +227,14 @@
    :home-page-fragments (make-home-page-fragments flags)
    :extra-routes (make-extra-routes flags)
    :ring-middleware (make-ring-middleware flags)})
+
+(defn post-process-fn [& data]
+  (fs/walk-file-tree
+   (fs/cwd)
+   {:visit-file (fn [f _attrs]
+                  (let [path (str f)
+                        filename (fs/file-name f)
+                        ext (fs/extension f)]
+                    (when (#{"edn" "clj"} ext)
+                      (zprint/zprint-file path filename path)))
+                  :continue)}))
