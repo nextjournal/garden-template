@@ -1,8 +1,11 @@
 (ns garden.template
   (:require
    [babashka.http-client :as http]
+   [babashka.fs :as fs]
    [cheshire.core :as cheshire]
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [clojure.pprint :refer [pprint]]
+   [zprint.core :as zprint]))
 
 ;; adapted from https://github.com/babashka/neil
 
@@ -51,14 +54,187 @@
   (let [alias (last (str/split dep #"\."))]
     (format "[%s :as %s]" dep alias)))
 
-(defn data-fn
-  [{:keys [with-email with-id with-cron]}]
-  (cond-> {}
-    with-email (assoc :garden-email-dep (make-dep-entry "io.github.nextjournal/garden-email"))
-    with-id (assoc :garden-id-dep (make-dep-entry "io.github.nextjournal/garden-id"))
-    with-cron (assoc :garden-cron-dep (make-dep-entry "io.github.nextjournal/garden-cron"))
-    with-email (assoc :garden-email-require (make-require-entry "nextjournal.garden-email"))
-    with-id (assoc :garden-id-require (make-require-entry "nextjournal.garden-id"))
-    with-cron (assoc :garden-cron-require (make-require-entry "nextjournal.garden-cron"))))
+(def base-deps '{http-kit/http-kit {:mvn/version "2.8.0-SNAPSHOT"}
+                 hiccup/hiccup {:mvn/version "2.0.0-RC3"}})
 
-(data-fn {:with-email true})
+(def cron-deps '{io.github.nextjournal/garden-cron {:git/sha "23d5af087f2c76cc884273883b18d30cb4fa4997"}})
+
+(def id-deps '{ring/ring-core {:mvn/version "2.0.0-alpha1"}
+               io.github.nextjournal/garden-id {:git/sha "7c1c9bb36978bc098f477181bc0261d69fa44389"}})
+
+(def email-deps '{io.github.nextjournal/garden-email {:git/sha "cdb5d404cd43127b3a495ca3f667279eab8950b7"}})
+
+(def storage-requires "
+    [clojure.java.io :as io]")
+
+(def id-requires "
+    ;; garden-id
+    [ring.middleware.session :as session]
+    [ring.middleware.session.cookie :refer [cookie-store]]
+    [nextjournal.garden-id :as garden-id]")
+
+(def email-requires "
+    ;; garden-email
+    [ring.middleware.params :as ring.params]
+    [nextjournal.garden-email :as garden-email]
+    [nextjournal.garden-email.render :as render-email]
+    [nextjournal.garden-email.mock :as mock-email]")
+
+(def cron-requires "
+    ;; garden-cron
+    [nextjournal.garden-cron :as garden-cron]")
+
+(def cron-code-snippet "
+;; increment a counter every 5 seconds
+(defonce counter (atom 0))
+(defn scheduled-task [_] (swap! counter inc))
+(garden-cron/defcron #'scheduled-task {:second (range 0 60 5)})
+
+(defn cron-fragment []
+  [:div
+   [:h2 \"Scheduled tasks\"]
+   [:p \"Counter has been incremented \" @counter \" times, since the application started.\"]])
+")
+
+(def storage-code-snippet "
+;; list persistent storage
+(defn ls-storage []
+  (.list (io/file (System/getenv \"GARDEN_STORAGE\"))))
+
+(defn storage-fragment []
+  [:div
+   [:h2 \"Storage\"]
+   [:p \"Persistent storage contains the following directories:\"]
+   [:ul
+    (for [d (ls-storage)]
+      [:li [:pre d]])]])
+")
+
+(def id-code-snippet "
+;; authenticate users
+(defn auth-fragment [req]
+  [:div
+   [:h2 \"Auth\"]
+   (if (garden-id/logged-in? req)
+     [:div
+      [:p \"You are logged in as:\"]
+      [:pre (pr-str (garden-id/get-user req))]
+      [:a {:href garden-id/logout-uri} \"logout\"]]
+     [:div
+      [:p \"You are not logged in.\"]
+      [:a {:href garden-id/login-uri} \"login\"]])])
+")
+
+(def email-code-snippet "
+;; send and receive email
+(defn send-email! [req]
+  (let [{:strs [to subject text html]} (:form-params req)]
+    (html-response
+     [:div
+      [:pre (pr-str (garden-email/send-email! (cond-> {:to {:email to}}
+                                                (not= \"\" subject) (assoc :subject subject)
+                                                (not= \"\" text) (assoc :text text)
+                                                (not= \"\" html) (assoc :html html))))]
+      [:a {:href \"/\"} \"ok\"]])))
+
+(defn email-fragment []
+  [:div
+   [:h2 \"Email\"]
+   [:h3 \"Send email\"]
+   [:form {:action \"/send-email\" :method \"POST\" :style \"display:flex;flex-direction:column;\"}
+    [:label {:for \"to\"} \"to\"]
+    [:input {:name \"to\" :type \"email\" :required true}]
+    [:label {:for \"subject\"} \"subject\"]
+    [:input {:name \"subject\" :type \"text\"}]
+    [:label {:for \"text\"} \"plain text\"]
+    [:textarea {:name \"text\"}]
+    [:label {:for \"html\"} \"html email\"]
+    [:textarea {:name \"html\"}]
+    [:input {:type \"submit\" :value \"send\"}]]
+   (when garden-email/dev-mode? [:a {:href mock-email/outbox-url} \"mock outbox\"])
+   [:p \"You can send me email at \" [:a {:href (str \"mailto:\" garden-email/my-email-address)} garden-email/my-email-address]]
+   [:div
+    [:h3 \"Inbox\"]
+    (render-email/render-mailbox (garden-email/inbox))]])
+")
+
+(def home-page-)
+
+
+(defn make-deps [{:keys [with-email with-id with-cron]}]
+  (cond-> base-deps
+    with-email (merge email-deps)
+    with-cron (merge cron-deps)
+    with-id (merge id-deps)))
+
+(defn make-requires [{:keys [with-storage with-email with-id with-cron]}]
+  (cond-> ""
+    with-storage (str storage-requires)
+    with-email (str email-requires)
+    with-cron (str cron-requires)
+    with-id (str id-requires)))
+
+(defn make-code-snippets [{:keys [with-storage with-email with-id with-cron]}]
+  (cond-> ""
+    with-storage (str storage-code-snippet)
+    with-email (str email-code-snippet)
+    with-cron (str cron-code-snippet)
+    with-id (str id-code-snippet)))
+
+(def cron-home-page-fragment "
+   (cron-fragment)")
+(def email-home-page-fragment "
+   (email-fragment)")
+(def storage-home-page-fragment "
+   (storage-fragment)")
+(def id-home-page-fragment "
+   (auth-fragment req)")
+
+(defn make-home-page-fragments [{:keys [with-storage with-email with-id with-cron]}]
+  (cond-> ""
+    with-storage (str storage-home-page-fragment)
+    with-email (str email-home-page-fragment)
+    with-cron (str cron-home-page-fragment)
+    with-id (str id-home-page-fragment)))
+
+(def email-extra-routes "
+
+    \"/send-email\" (send-email! req)")
+
+(defn make-extra-routes [{:keys [with-email]}]
+  (cond-> ""
+    with-email (str email-extra-routes)))
+
+(def email-ring-middleware "
+      ;; garden-email
+      (ring.params/wrap-params)
+      (garden-email/wrap-with-email)")
+
+(def id-ring-middleware "
+      ;; garden-id
+      (garden-id/wrap-auth)
+      (session/wrap-session {:store (cookie-store)})")
+
+(defn make-ring-middleware [{:keys [with-email with-id]}]
+  (cond-> ""
+    with-email (str email-ring-middleware)
+    with-id (str id-ring-middleware)))
+
+(defn data-fn [flags]
+  {:deps (with-out-str (pprint (make-deps flags)))
+   :requires (make-requires flags)
+   :code-snippets (make-code-snippets flags)
+   :home-page-fragments (make-home-page-fragments flags)
+   :extra-routes (make-extra-routes flags)
+   :ring-middleware (make-ring-middleware flags)})
+
+(defn post-process-fn [& data]
+  (fs/walk-file-tree
+   (fs/cwd)
+   {:visit-file (fn [f _attrs]
+                  (let [path (str f)
+                        filename (fs/file-name f)
+                        ext (fs/extension f)]
+                    (when (#{"edn" "clj"} ext)
+                      (zprint/zprint-file path filename path)))
+                  :continue)}))
