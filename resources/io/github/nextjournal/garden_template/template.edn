@@ -1,4 +1,5 @@
 {:data-fn garden.template/data-fn
+ :post-process-fn garden.template/post-process-fn
  :transform
  [["build" ""
    {"deps.tmpl" "deps.edn"}
