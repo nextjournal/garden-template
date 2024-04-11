@@ -1,7 +1,4 @@
 {:data-fn garden.template/data-fn
  :transform
- [["build" ""
-   {"deps.tmpl" "deps.edn"}
-   :only]
-  ["src" "src/{{top/file}}"
-   {"main.tmpl" "{{main/file}}.clj"}]]}
+ [["build" "" {"deps.tmpl" "deps.edn"} :only]
+  ["src" "src" {"main.tmpl" "{{main/file}}.clj"}]]}
